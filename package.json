@@ -1,0 +1,82 @@
+{
+  "name": "nasa-apod-fetcher",
+  "author": "zalew",
+  "version": "1.1.0",
+  "keywords": [
+    "pebble-plugin"
+  ],
+  "private": true,
+  "scripts": {
+    "build:plugin": "node tools/build-plugin.js",
+    "test": "node tools/test/run.js"
+  },
+  "dependencies": {},
+  "pebble": {
+    "displayName": "NASA APOD",
+    "uuid": "9a9fe87b-ae2d-41c3-a783-ea3dad3e9b49",
+    "sdkVersion": "3",
+    "projectType": "plugin",
+    "configPage": "src/config.html",
+    "usesPermissions": [
+      {
+        "name": "Internet",
+        "parameters": {
+          "domains": [
+            "science.nasa.gov",
+            "assets.science.nasa.gov",
+            "apod.nasa.gov"
+          ]
+        }
+      }
+    ],
+    "plugin": {
+      "description": "NASA Astronomy Picture of the Day: title, date, explanation and the picture itself as a watch-ready image.",
+      "script": "src/plugin/index.js",
+      "sources": [
+        {
+          "category": "space",
+          "items": [
+            "apod"
+          ],
+          "properties": {
+            "name": [
+              "shortText",
+              "longText"
+            ],
+            "title": [
+              "shortText",
+              "longText"
+            ],
+            "date": [
+              "shortText",
+              "longText",
+              "timestamp"
+            ],
+            "explanation": [
+              "longText"
+            ],
+            "media_type": [
+              "shortText"
+            ],
+            "image_url": [
+              "longText"
+            ],
+            "image": [
+              "image"
+            ],
+            "credit": [
+              "longText"
+            ],
+            "alt": [
+              "longText"
+            ],
+            "page_url": [
+              "longText"
+            ]
+          },
+          "suggestedRefreshIntervalSec": 3600
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>NASA APOD</title>
+<style>
+  :root { --bg:#fff; --fg:#14161a; --muted:#667; --card:#f2f4f8; --line:#d5d9e2; --accent:#1d5fd1; --accent-fg:#fff; --warn:#a15c00; --warn-bg:#fff3d9; --bad:#b3261e; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#0e1116; --fg:#e8eaee; --muted:#9aa3b2; --card:#181d26; --line:#2b3340; --accent:#5b9bff; --accent-fg:#06101f; --warn:#ffcc66; --warn-bg:#332600; --bad:#ff8a80; }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; padding:16px; background:var(--bg); color:var(--fg); font:16px/1.4 system-ui,-apple-system,Roboto,sans-serif; }
+  main { max-width:560px; margin:0 auto; }
+  h1 { font-size:1.35rem; margin:0 0 2px; }
+  h2 { font-size:.8rem; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); margin:22px 0 8px; }
+  .sub { color:var(--muted); margin:0 0 14px; font-size:.9rem; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px; }
+  .banner { background:var(--warn-bg); color:var(--warn); border-radius:10px; padding:10px 12px; margin:0 0 12px; font-size:.9rem; }
+  .banner.bad { color:var(--bad); }
+  .row { display:flex; gap:8px; align-items:center; margin:8px 0; flex-wrap:wrap; }
+  .row > label { flex:0 0 96px; }
+  select, input[type=date], input[type=number] { font:inherit; color:inherit; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; flex:1 1 180px; min-width:0; }
+  input[type=range] { flex:1 1 180px; }
+  input[type=number] { flex:0 1 80px; }
+  button { font:inherit; border:1px solid var(--line); background:var(--bg); color:var(--fg); border-radius:10px; padding:10px 14px; cursor:pointer; }
+  button.primary { background:var(--accent); color:var(--accent-fg); border-color:var(--accent); font-weight:600; }
+  button:disabled { opacity:.5; cursor:default; }
+  .actions { display:flex; gap:8px; margin-top:14px; }
+  .actions button { flex:1; }
+  .previews { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
+  .previews figure { margin:0; flex:1 1 200px; min-width:0; }
+  figcaption { font-size:.78rem; color:var(--muted); margin-top:4px; }
+  canvas, .orig { display:block; width:100%; background:#000; border-radius:8px; image-rendering:pixelated; }
+  canvas.round { border-radius:50%; }
+  .orig { image-rendering:auto; min-height:60px; object-fit:contain; max-height:320px; }
+  .status { margin:10px 0 0; font-size:.9rem; color:var(--muted); min-height:1.3em; }
+  .status.bad { color:var(--bad); }
+  .meta h3 { margin:12px 0 2px; font-size:1.05rem; }
+  .meta p { margin:2px 0; color:var(--muted); font-size:.85rem; }
+  details { margin-top:10px; }
+  summary { cursor:pointer; color:var(--muted); font-size:.9rem; }
+  pre { white-space:pre-wrap; word-break:break-word; font-size:.74rem; background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:8px; max-height:260px; overflow:auto; }
+  .expl { white-space:pre-line; font-size:.88rem; margin-top:6px; }
+  .check { display:flex; gap:10px; align-items:flex-start; margin:10px 0; }
+  .check input { margin-top:4px; }
+  .check small { display:block; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <h1>NASA Astronomy Picture of the Day</h1>
+  <p class="sub">Plugin source <code>space/apod</code> &middot; <span id="ver">starting&hellip;</span></p>
+
+  <div id="banner" class="banner" hidden></div>
+
+  <h2>Preview</h2>
+  <div class="card">
+    <div class="previews">
+      <figure>
+        <canvas id="canvas" width="200" height="228"></canvas>
+        <figcaption id="canvasCap">What a watchface receives</figcaption>
+      </figure>
+      <figure>
+        <img id="orig" class="orig" alt="Original picture from NASA" hidden>
+        <figcaption id="origCap">Original from NASA</figcaption>
+      </figure>
+    </div>
+    <div class="meta" id="meta"></div>
+    <p id="status" class="status">Waiting for the plugin&hellip;</p>
+    <div class="row">
+      <button id="prev" title="Previous day">&lsaquo;</button>
+      <input type="date" id="date" aria-label="Date (empty = latest)">
+      <button id="next" title="Next day">&rsaquo;</button>
+      <button id="latest">Latest</button>
+    </div>
+    <div class="actions"><button id="fetch" class="primary" disabled>Fetch &amp; convert</button></div>
+    <details><summary>Diagnostics</summary><pre id="log">(nothing yet)</pre>
+      <div class="row"><button id="clear">Clear cached pictures</button></div>
+    </details>
+  </div>
+
+  <h2>Watch size</h2>
+  <div class="card">
+    <div class="row"><label for="preset">Preview as</label>
+      <select id="preset">
+        <option value="200x228">Pebble Time 2 (200&times;228)</option>
+        <option value="260x260" data-round="1">Pebble Round 2 (260&times;260)</option>
+        <option value="144x168">Pebble Time / Pebble 2 (144&times;168)</option>
+        <option value="180x180" data-round="1">Pebble Time Round (180&times;180)</option>
+        <option value="custom">Custom&hellip;</option>
+      </select></div>
+    <div class="row" id="customRow" hidden>
+      <input type="number" id="cw" min="1" max="260" value="200"> &times; <input type="number" id="ch" min="1" max="260" value="228">
+    </div>
+    <small style="color:var(--muted)">Only affects this preview. Each watchface asks the plugin for its own size.</small>
+  </div>
+
+  <h2>Image</h2>
+  <div class="card">
+    <div class="row"><label for="fit">Framing</label>
+      <select id="fit"><option value="fill">Fill screen (crop edges)</option><option value="fit">Fit whole picture (letterbox)</option></select></div>
+    <div class="row"><label for="color">Colours</label>
+      <select id="color"><option value="color">Colour (best 16 of 64)</option><option value="gray">Grayscale (4 levels)</option></select></div>
+    <div class="row"><label for="dim">Dim <span id="dimv">0</span>%</label>
+      <input type="range" id="dim" min="0" max="70" step="5" value="0"></div>
+    <label class="check"><input type="checkbox" id="dither"><span>Dithering<small>Smoother gradients with few colours.</small></span></label>
+    <label class="check"><input type="checkbox" id="smallDownload"><span>Ask NASA for a smaller file first<small>Faster and uses less phone memory; falls back to the full-size file.</small></span></label>
+    <label class="check"><input type="checkbox" id="skipVideos"><span>Skip videos<small>If today's APOD is a video, use the most recent still picture.</small></span></label>
+    <div class="actions"><button id="save" class="primary" disabled>Save settings</button></div>
+  </div>
+</main>
+
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var busy = false, ready = false;
+  var ids = ['fit', 'color', 'dim', 'dither', 'smallDownload', 'skipVideos'];
+
+  function setStatus(text, bad) { var s = $('status'); s.textContent = text; s.className = 'status' + (bad ? ' bad' : ''); }
+  function send(message) { return Pebble.sendMessage('plugin', message); }
+
+  function readSettings() {
+    return {
+      fit: $('fit').value, color: $('color').value, dim: +$('dim').value,
+      dither: $('dither').checked, smallDownload: $('smallDownload').checked, skipVideos: $('skipVideos').checked
+    };
+  }
+  function writeSettings(s) {
+    $('fit').value = s.fit; $('color').value = s.color; $('dim').value = s.dim; $('dimv').textContent = s.dim;
+    $('dither').checked = !!s.dither; $('smallDownload').checked = !!s.smallDownload; $('skipVideos').checked = !!s.skipVideos;
+  }
+  function size() {
+    var v = $('preset').value;
+    if (v === 'custom') return { w: Math.max(1, Math.min(260, +$('cw').value || 144)), h: Math.max(1, Math.min(260, +$('ch').value || 168)) };
+    var p = v.split('x'); return { w: +p[0], h: +p[1] };
+  }
+  function lock(on) {
+    busy = on;
+    ['fetch', 'save', 'prev', 'next', 'latest', 'clear'].forEach(function (id) { $(id).disabled = on || !ready; });
+  }
+  function showBanner(missing, extra) {
+    var b = $('banner'), parts = [];
+    if (missing && missing.length) {
+      parts.push('Internet access is switched off for: ' + missing.join(', ') + '. Open this plugin’s permissions in the Pebble app and allow those domains.');
+    }
+    if (extra) parts.push(extra);
+    b.hidden = !parts.length; b.textContent = parts.join(' ');
+  }
+
+  function b64(s) { var bin = atob(s), out = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
+  function drawBitmap(bm) {
+    var c = $('canvas'), ctx = c.getContext('2d');
+    c.width = bm.width; c.height = bm.height;
+    var px = b64(bm.pixels), pal = b64(bm.palette), stride = (bm.width + 1) >> 1;
+    var img = ctx.createImageData(bm.width, bm.height);
+    for (var y = 0; y < bm.height; y++) for (var x = 0; x < bm.width; x++) {
+      var byte = px[y * stride + (x >> 1)], i = (x & 1) ? (byte & 15) : (byte >> 4);
+      var g = pal[i] === undefined ? 0 : pal[i], o = (y * bm.width + x) * 4;
+      img.data[o] = ((g >> 4) & 3) * 85; img.data[o + 1] = ((g >> 2) & 3) * 85; img.data[o + 2] = (g & 3) * 85; img.data[o + 3] = 255;
+    }
+    ctx.putImageData(img, 0, 0);
+  }
+  function clearCanvas(w, h) { var c = $('canvas'); c.width = w; c.height = h; c.getContext('2d').clearRect(0, 0, w, h); }
+
+  function renderMeta(r) {
+    var m = $('meta'); m.textContent = '';
+    if (!r.entry) return;
+    var h = document.createElement('h3'); h.textContent = r.entry.title; m.appendChild(h);
+    var line = document.createElement('p');
+    line.textContent = r.entry.date + ' · ' + r.entry.media_type + (r.entry.credit ? ' · ' + r.entry.credit : '');
+    m.appendChild(line);
+    if (r.skipped) { var s = document.createElement('p'); s.textContent = 'Newest entry is not a still image; showing the latest picture instead.'; m.appendChild(s); }
+    if (r.entry.explanation) {
+      var d = document.createElement('details'), sm = document.createElement('summary'), t = document.createElement('div');
+      sm.textContent = 'Explanation'; t.className = 'expl'; t.textContent = r.entry.explanation; d.appendChild(sm); d.appendChild(t); m.appendChild(d);
+    }
+  }
+
+  async function preview() {
+    if (busy) return;
+    lock(true);
+    var sz = size();
+    $('canvas').className = $('preset').selectedOptions[0] && $('preset').selectedOptions[0].dataset.round ? 'round' : '';
+    setStatus('Fetching from NASA and converting…');
+    try {
+      var r = await send({ type: 'preview', width: sz.w, height: sz.h, date: $('date').value || null, settings: readSettings() });
+      $('log').textContent = (r.log && r.log.length ? r.log.join('\n') : '(no log)');
+      showBanner(r.missingPermissions);
+      if (r.error) { setStatus('Could not reach NASA: ' + r.error, true); renderMeta({}); clearCanvas(sz.w, sz.h); return; }
+      renderMeta(r);
+      if (r.entry && r.entry.date && !$('date').value) $('date').placeholder = r.entry.date;
+      var o = $('orig');
+      if (r.entry && r.entry.thumb_url) {
+        o.hidden = false; o.onerror = function () { $('origCap').textContent = 'Original from NASA (could not be displayed here)'; };
+        o.onload = function () { $('origCap').textContent = 'Original from NASA (' + o.naturalWidth + '×' + o.naturalHeight + ' as loaded here)'; };
+        o.src = r.entry.thumb_url;
+      } else { o.hidden = true; }
+      if (r.image) {
+        drawBitmap(r.image);
+        var i = r.info || {};
+        $('canvasCap').textContent = 'What a watchface receives · ' + r.image.width + '×' + r.image.height + ', 16-colour palette';
+        setStatus('Works: ' + r.entry.date + ' · ' + (i.format || '').toUpperCase() + ' ' + (i.sourceWidth || '?') + '×' + (i.sourceHeight || '?') + ', ' + Math.round((i.bytes || 0) / 1024) + ' KB downloaded.');
+      } else {
+        clearCanvas(sz.w, sz.h);
+        setStatus('Metadata OK, but no image: ' + (r.imageError || 'unknown reason') + ' (see Diagnostics)', true);
+      }
+    } catch (e) {
+      setStatus('Plugin error: ' + (e && e.message ? e.message : e), true);
+    } finally { lock(false); }
+  }
+
+  async function save() {
+    if (busy) return;
+    lock(true);
+    try {
+      var r = await send({ type: 'save', settings: readSettings() });
+      setStatus(r && r.ok ? 'Saved. Watchfaces will refresh with these settings.' : 'Save failed: ' + (r && r.error), !(r && r.ok));
+    } catch (e) { setStatus('Save failed: ' + e, true); } finally { lock(false); }
+  }
+
+  function shiftDate(days) {
+    var cur = $('date').value || $('date').placeholder || new Date().toISOString().slice(0, 10);
+    var d = new Date(cur + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + days);
+    var iso = d.toISOString().slice(0, 10);
+    if (iso > new Date().toISOString().slice(0, 10)) return;
+    $('date').value = iso; preview();
+  }
+
+  $('fetch').onclick = preview;
+  $('save').onclick = save;
+  $('prev').onclick = function () { shiftDate(-1); };
+  $('next').onclick = function () { shiftDate(1); };
+  $('latest').onclick = function () { $('date').value = ''; preview(); };
+  $('date').onchange = function () { if ($('date').value) preview(); };
+  $('dim').oninput = function () { $('dimv').textContent = $('dim').value; };
+  $('preset').onchange = function () { $('customRow').hidden = $('preset').value !== 'custom'; };
+  $('clear').onclick = async function () {
+    if (busy) return; lock(true);
+    try { await send({ type: 'clearCache' }); setStatus('Cache cleared.'); } catch (e) { setStatus('' + e, true); } finally { lock(false); }
+  };
+
+  Pebble.addEventListener('ready', async function (event) {
+    if (event && event.target && event.target !== 'plugin') return;
+    try {
+      var init = await send({ type: 'init' });
+      if (!init || init.error) throw new Error(init && init.error || 'no reply');
+      ready = true;
+      $('ver').textContent = 'v' + init.version;
+      writeSettings(init.settings);
+      showBanner(init.missingPermissions, init.lastError ? 'Last background error: ' + init.lastError.message : '');
+      lock(false);
+      preview();
+    } catch (e) { setStatus('Plugin did not answer: ' + (e && e.message ? e.message : e), true); }
+  });
+  setTimeout(function () { if (!ready) setStatus('Still waiting for the plugin to start… if this stays, the plugin script failed to load.', true); }, 6000);
+})();
+</script>
+</body>
+</html>
