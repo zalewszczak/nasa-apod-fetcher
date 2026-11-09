@@ -1991,7 +1991,7 @@ function decode(jpegData, userOpts = {}) {
 };
 __defs["main"] = function (module, exports, require) {
 /*
- * NASA Astronomy Picture of the Day - PebbleOS plugin (source: space/apod, instance "today").
+ * NASA Astronomy Picture of the Day - PebbleOS plugin (source: watch/apod, instance "today").
  *
  * This file is bundled together with the vendored JPEG/PNG decoders into
  * src/plugin/index.js by tools/build-plugin.js. Plugin scripts are evaluated as a plain
@@ -2006,7 +2006,7 @@ var jpegDecode = require('jpeg-decoder');
 var UPNG = require('upng-js');
 
 var VERSION = '1.1.0';
-var SOURCE_KEY = 'space/apod';
+var SOURCE_KEY = 'watch/apod';
 var ENDPOINT = 'https://science.nasa.gov/wp-json/wp/v2/apod-basic/';
 var LIST_COUNT = 10;
 
@@ -2706,7 +2706,7 @@ function propertiesFor(entry, wants, settings) {
 // ---------------------------------------------------------------- source handler
 
 Pebble.registerSourceHandler(async function (request, respond) {
-  if (request.category !== 'space' || request.item !== 'apod') {
+  if (request.category !== 'watch' || request.item !== 'apod') {
     respond.error('PLUGIN_UNAVAILABLE', 'this plugin only serves ' + SOURCE_KEY);
     return;
   }
