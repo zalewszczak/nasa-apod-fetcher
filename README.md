@@ -113,6 +113,7 @@ Pebble.subscribeToSource({
 package.json            manifest (sources, permissions, config page)
 src/plugin/index.js     GENERATED single-file plugin (what ships)
 src/config.html         settings page with live preview
+src/icon.svg            app-selector icon (24x24 line art: watch outline, ringed planet, "APOD")
 tools/plugin/main.js    plugin source – edit this, then: npm run build:plugin
 tools/vendor/           jpeg-js (Apache-2.0), UPNG.js (MIT), pako (MIT) + licences
 tools/test/             mock-phone tests (see run.js / browser.js; fixtures via make-fixtures.py)

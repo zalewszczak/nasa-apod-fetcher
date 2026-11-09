@@ -34,7 +34,7 @@
       "script": "src/plugin/index.js",
       "sources": [
         {
-          "category": "space",
+          "category": "watch",
           "items": [
             "apod"
           ],
