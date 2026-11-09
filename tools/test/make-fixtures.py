@@ -21,3 +21,7 @@ space(4000, 2600).save(out + '/big.jpg', quality=88, progressive=True)
 space(1024, 668).save(out + '/small.jpg', quality=88)
 space(900, 900).save(out + '/square.png')
 p = space(500, 300).convert('RGBA'); p.putpixel((0, 0), (255, 0, 0, 0)); p.save(out + '/alpha.png')
+
+tiny = Image.new('RGB', (120, 90), (240, 240, 255))
+ImageDraw.Draw(tiny).rectangle([10, 10, 109, 79], fill=(255, 200, 80))
+tiny.save(out + '/tiny.jpg', quality=92)

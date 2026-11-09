@@ -30,10 +30,12 @@
   button:disabled { opacity:.5; cursor:default; }
   .actions { display:flex; gap:8px; margin-top:14px; }
   .actions button { flex:1; }
-  .previews { display:flex; gap:12px; flex-wrap:wrap; align-items:flex-start; }
-  .previews figure { margin:0; flex:1 1 200px; min-width:0; }
+  .previews { display:flex; gap:12px; flex-wrap:nowrap; align-items:flex-start; }
+  .previews figure { margin:0; min-width:0; }
+  .previews figure:first-child { flex:0 0 calc(50% - 6px); }
+  .previews figure:last-child { flex:1 1 0; }
   figcaption { font-size:.78rem; color:var(--muted); margin-top:4px; }
-  canvas, .orig { display:block; width:100%; background:#000; border-radius:8px; image-rendering:pixelated; }
+  canvas, .orig { display:block; width:100%; max-width:100%; background:#000; border-radius:8px; image-rendering:pixelated; }
   canvas.round { border-radius:50%; }
   .orig { image-rendering:auto; min-height:60px; object-fit:contain; max-height:320px; }
   .status { margin:10px 0 0; font-size:.9rem; color:var(--muted); min-height:1.3em; }
@@ -106,8 +108,10 @@
       <select id="color"><option value="color">Colour (best 16 of 64)</option><option value="gray">Grayscale (4 levels)</option></select></div>
     <div class="row"><label for="dim">Dim <span id="dimv">0</span>%</label>
       <input type="range" id="dim" min="0" max="70" step="5" value="0"></div>
+    <div class="row"><label for="titleShort">Title</label>
+      <select id="titleShort"><option value="full">Full title in every text slot</option><option value="abbrev">Abbreviated in short slots (~7 chars)</option></select></div>
     <label class="check"><input type="checkbox" id="dither"><span>Dithering<small>Smoother gradients with few colours.</small></span></label>
-    <label class="check"><input type="checkbox" id="smallDownload"><span>Ask NASA for a smaller file first<small>Faster and uses less phone memory; falls back to the full-size file.</small></span></label>
+    <label class="check"><input type="checkbox" id="smallDownload"><span>Ask NASA for a smaller file first<small>Requests a thumbnail sized for the watch from NASA's image resizer: tiny download, no huge decode. Falls back to the full file.</small></span></label>
     <label class="check"><input type="checkbox" id="skipVideos"><span>Skip videos<small>If today's APOD is a video, use the most recent still picture.</small></span></label>
     <div class="actions"><button id="save" class="primary" disabled>Save settings</button></div>
   </div>
@@ -126,12 +130,12 @@
   function readSettings() {
     return {
       fit: $('fit').value, color: $('color').value, dim: +$('dim').value,
-      dither: $('dither').checked, smallDownload: $('smallDownload').checked, skipVideos: $('skipVideos').checked
+      titleShort: $('titleShort').value, dither: $('dither').checked, smallDownload: $('smallDownload').checked, skipVideos: $('skipVideos').checked
     };
   }
   function writeSettings(s) {
     $('fit').value = s.fit; $('color').value = s.color; $('dim').value = s.dim; $('dimv').textContent = s.dim;
-    $('dither').checked = !!s.dither; $('smallDownload').checked = !!s.smallDownload; $('skipVideos').checked = !!s.skipVideos;
+    $('titleShort').value = s.titleShort || 'full'; $('dither').checked = !!s.dither; $('smallDownload').checked = !!s.smallDownload; $('skipVideos').checked = !!s.skipVideos;
   }
   function size() {
     var v = $('preset').value;
@@ -154,7 +158,7 @@
   function b64(s) { var bin = atob(s), out = new Uint8Array(bin.length); for (var i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i); return out; }
   function drawBitmap(bm) {
     var c = $('canvas'), ctx = c.getContext('2d');
-    c.width = bm.width; c.height = bm.height;
+    c.width = bm.width; c.height = bm.height; c.style.maxWidth = bm.width + 'px';
     var px = b64(bm.pixels), pal = b64(bm.palette), stride = (bm.width + 1) >> 1;
     var img = ctx.createImageData(bm.width, bm.height);
     for (var y = 0; y < bm.height; y++) for (var x = 0; x < bm.width; x++) {
@@ -164,7 +168,7 @@
     }
     ctx.putImageData(img, 0, 0);
   }
-  function clearCanvas(w, h) { var c = $('canvas'); c.width = w; c.height = h; c.getContext('2d').clearRect(0, 0, w, h); }
+  function clearCanvas(w, h) { var c = $('canvas'); c.width = w; c.height = h; c.style.maxWidth = w + 'px'; c.getContext('2d').clearRect(0, 0, w, h); }
 
   function renderMeta(r) {
     var m = $('meta'); m.textContent = '';
@@ -173,6 +177,11 @@
     var line = document.createElement('p');
     line.textContent = r.entry.date + ' · ' + r.entry.media_type + (r.entry.credit ? ' · ' + r.entry.credit : '');
     m.appendChild(line);
+    if (r.served) {
+      var sv = document.createElement('p');
+      sv.textContent = 'Served as short text: \u201c' + r.served.titleShort + '\u201d \u00b7 long text: ' + r.served.titleLong.length + ' characters (full title)';
+      m.appendChild(sv);
+    }
     if (r.skipped) { var s = document.createElement('p'); s.textContent = 'Newest entry is not a still image; showing the latest picture instead.'; m.appendChild(s); }
     if (r.entry.explanation) {
       var d = document.createElement('details'), sm = document.createElement('summary'), t = document.createElement('div');

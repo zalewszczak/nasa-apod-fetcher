@@ -49,11 +49,19 @@ The script in `src/plugin/index.js` is already built. You only need `npm run bui
 
 ## How the image is made
 
-1. Ask NASA's image CDN for a ~1024 px wide file (`?w=1024`); if that fails or isn't an image,
-   fall back to `hdurl`. (Turn off in settings to always download the full file.)
+1. NASA's `hdurl` is itself an image-resizer URL, e.g.
+   `https://assets.science.nasa.gov/dynamicimage/assets/science/cds/apod/apod/2026/x.jpg?w=1772&h=1182&fit=clip&crop=faces%2Cfocalpoint`,
+   so its `w`/`h` tell us the picture size before downloading anything. The plugin rewrites them
+   (dropping `crop`) to a **thumbnail just big enough for the watch** (2x oversampled, never
+   enlarged) - typically 20-80 KB instead of megabytes. Originals under `/content/dam/` are
+   mapped to the same resizer; any other host gets `?w=1024`. If the thumbnail request fails,
+   the plain `hdurl` is tried, unless its `w`/`h` show it is over 12 MP.
+   (Setting *Ask NASA for a smaller file first* turns this off.)
 2. Check magic bytes and header dimensions (refuses > 12 MP rather than crash the phone).
 3. Decode JPEG (jpeg-js, incl. progressive) or PNG (UPNG + pako).
 4. Area-average downscale to the requested size (fill = crop to cover, or fit = letterbox).
+   A picture that is already smaller than the requested size is **not enlarged**: it is placed
+   1:1, centred horizontally and within the upper two thirds of the image.
 5. Optional dim, optional grayscale.
 6. Pick the best 16 of the watch's 64 colours for *this* picture, then map pixels with
    Floyd–Steinberg dithering. Pack two pixels per byte, base64.
@@ -63,13 +71,16 @@ The script in `src/plugin/index.js` is already built. You only need `npm run bui
 | property | shapes |
 |---|---|
 | `name` | shortText, longText |
-| `title` | shortText (~7 chars), longText |
+| `title` | longText = full title; shortText = full title too (setting *Title*), or ~7 chars if set to abbreviated |
 | `date` | shortText ("Nov 8"), longText ("8 November 2026"), timestamp |
 | `explanation`, `credit`, `alt`, `image_url`, `page_url` | longText |
 | `media_type` | shortText |
 | `image` | image – only when the subscriber sets `iconPixelSize` |
 
 If today's APOD is a video, the latest still picture is served (setting: *Skip videos*).
+
+The host only *warns* about a `shortText` over ~7 characters and keeps it. A watchface that wants
+the title for a wide slot should read `title.longText.text`, which is always the full title.
 
 ## Using it from a watchface (PKJS)
 

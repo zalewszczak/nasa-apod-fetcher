@@ -28,7 +28,7 @@ var META_TTL_MS = 60 * 60 * 1000;
 var STALE_TTL_MS = 10 * 60 * 1000;
 var MAX_CACHED_BITMAPS = 6;
 var DOWNLOAD_WIDTH = 1024;
-var MAX_DOWNLOAD_BYTES = 30 * 1024 * 1024;
+var MAX_DOWNLOAD_BYTES = 20 * 1024 * 1024;
 var MAX_DECODE_PIXELS = 12000000;
 var BACKGROUND = [5, 8, 18];
 var REQUIRED_HOSTS = ['science.nasa.gov', 'assets.science.nasa.gov'];
@@ -39,7 +39,8 @@ var DEFAULTS = {
   dither: true,
   dim: 0,               // 0..70 percent darkening, so watchface text stays readable
   smallDownload: true,  // ask NASA's image CDN for a ~1024px wide file first
-  skipVideos: true      // when today's APOD is a video, use the latest still image
+  skipVideos: true,     // when today's APOD is a video, use the latest still image
+  titleShort: 'full'    // 'full' = whole title also in title.shortText, 'abbrev' = ~7 chars
 };
 
 var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -154,7 +155,8 @@ function sanitizeSettings(s) {
     dither: s.dither === undefined ? DEFAULTS.dither : !!s.dither,
     dim: clampInt(s.dim, 0, 70, DEFAULTS.dim),
     smallDownload: s.smallDownload === undefined ? DEFAULTS.smallDownload : !!s.smallDownload,
-    skipVideos: s.skipVideos === undefined ? DEFAULTS.skipVideos : !!s.skipVideos
+    skipVideos: s.skipVideos === undefined ? DEFAULTS.skipVideos : !!s.skipVideos,
+    titleShort: s.titleShort === 'abbrev' ? 'abbrev' : 'full'
   };
 }
 
@@ -350,6 +352,22 @@ function scaleToTarget(img, tw, th, fit) {
   var src = img.data, sw = img.width, sh = img.height;
   var out = new Uint8Array(tw * th * 3);
   for (var i = 0; i < out.length; i += 3) { out[i] = BACKGROUND[0]; out[i + 1] = BACKGROUND[1]; out[i + 2] = BACKGROUND[2]; }
+
+  // A picture that already fits entirely inside the target is not enlarged (that would look
+  // pixelated): it is placed 1:1, centred horizontally and within the upper two thirds.
+  if (sw <= tw && sh <= th) {
+    var x0 = Math.floor((tw - sw) / 2);
+    var y0 = Math.max(0, Math.min(th - sh, Math.floor((Math.floor(th * 2 / 3) - sh) / 2)));
+    for (var yy = 0; yy < sh; yy++) {
+      for (var xx = 0; xx < sw; xx++) {
+        var sp = (yy * sw + xx) * 4, a0 = src[sp + 3] / 255, op = ((y0 + yy) * tw + x0 + xx) * 3;
+        out[op] = src[sp] * a0 + BACKGROUND[0] * (1 - a0);
+        out[op + 1] = src[sp + 1] * a0 + BACKGROUND[1] * (1 - a0);
+        out[op + 2] = src[sp + 2] * a0 + BACKGROUND[2] * (1 - a0);
+      }
+    }
+    return out;
+  }
 
   var scale, srcX0, srcY0, srcW, srcH, dstX0, dstY0, dstW, dstH;
   if (fit === 'fit') {
@@ -594,8 +612,48 @@ function clearBitmapCache() {
   storeRemove(META_KEY);
 }
 
-function resizedUrl(url) {
-  return url + (url.indexOf('?') >= 0 ? '&' : '?') + 'w=' + DOWNLOAD_WIDTH;
+function parseQuery(url) {
+  var q = {}, i = url.indexOf('?');
+  if (i < 0) return q;
+  url.slice(i + 1).split('&').forEach(function (pair) {
+    var kv = pair.split('=');
+    if (kv[0]) q[kv[0]] = kv.length > 1 ? kv.slice(1).join('=') : '';
+  });
+  return q;
+}
+
+/**
+ * NASA's hdurl is normally an image-resizer URL:
+ *   https://assets.science.nasa.gov/dynamicimage/assets/science/cds/apod/apod/2026/x.jpg?w=1772&h=1182&fit=clip&crop=faces%2Cfocalpoint
+ * whose w/h tell us the picture's size. We rewrite w/h to a thumbnail just big enough for the
+ * watch (2x oversampled for a clean downscale, never enlarged), so the phone only ever
+ * downloads/decodes a small file. Originals under /content/dam/ are mapped to the same resizer.
+ * Returns the URLs to try in order; the last is the untouched hdurl (unless it's known to be huge).
+ */
+function candidateUrls(entry, tw, th, settings) {
+  var url = entry.image_url, urls = [], q = parseQuery(url);
+  var sw = parseInt(q.w, 10), sh = parseInt(q.h, 10), known = sw > 0 && sh > 0;
+  var base = url.split('?')[0];
+  var dynamic = base.indexOf('/dynamicimage/') >= 0;
+  var original = base.indexOf('/content/dam/') >= 0;
+  if (settings.smallDownload) {
+    if (dynamic || original) {
+      var resizer = dynamic ? base : base.replace('/content/dam/', '/dynamicimage/assets/');
+      var query;
+      if (dynamic && known) {
+        var s = settings.fit === 'fit' ? Math.min(tw / sw, th / sh) : Math.max(tw / sw, th / sh);
+        var f = Math.min(1, s * 2);
+        query = 'w=' + Math.max(1, Math.round(sw * f)) + '&h=' + Math.max(1, Math.round(sh * f)) + '&fit=clip';
+      } else {
+        query = 'w=' + DOWNLOAD_WIDTH + '&fit=clip';
+      }
+      urls.push(resizer + '?' + query);
+    } else {
+      urls.push(url + (url.indexOf('?') >= 0 ? '&' : '?') + 'w=' + DOWNLOAD_WIDTH);
+    }
+  }
+  if (!(known && sw * sh > MAX_DECODE_PIXELS)) urls.push(url);
+  return urls.filter(function (u, i) { return urls.indexOf(u) === i; });
 }
 
 /** Returns {bitmap, info}. */
@@ -606,9 +664,7 @@ async function getBitmap(entry, w, h, settings, log, opts) {
     var hit = storeGet(key);
     if (hit && hit.bitmap) { log('bitmap from cache'); return { bitmap: hit.bitmap, info: hit.info, cached: true }; }
   }
-  var urls = [];
-  if (settings.smallDownload) urls.push(resizedUrl(entry.image_url));
-  urls.push(entry.image_url);
+  var urls = candidateUrls(entry, w, h, settings);
   var lastError = null;
   for (var i = 0; i < urls.length; i++) {
     try {
@@ -634,11 +690,11 @@ function isoToParts(iso) {
   return m ? { y: +m[1], m: +m[2], d: +m[3] } : null;
 }
 
-function propertiesFor(entry, wants) {
+function propertiesFor(entry, wants, settings) {
   var p = {};
   var parts = isoToParts(entry.date);
   if (wants('name')) p.name = { shortText: { text: 'APOD' }, longText: { text: 'NASA Astronomy Picture of the Day' } };
-  if (wants('title')) p.title = { shortText: { text: fitShort(entry.title, 7) }, longText: { text: entry.title } };
+  if (wants('title')) p.title = { shortText: { text: settings && settings.titleShort === 'abbrev' ? fitShort(entry.title, 7) : entry.title }, longText: { text: entry.title } };
   if (wants('date') && parts) {
     p.date = {
       shortText: { text: MONTHS[parts.m - 1] + ' ' + parts.d },
@@ -673,7 +729,7 @@ Pebble.registerSourceHandler(async function (request, respond) {
     return;
   }
   var wants = function (name) { return !request.properties || request.properties.indexOf(name) >= 0; };
-  var props = propertiesFor(apod.entry, wants);
+  var props = propertiesFor(apod.entry, wants, settings);
   var size = request.iconPixelSize;
   if (wants('image') && size && apod.entry.image_url) {
     try {
@@ -737,6 +793,7 @@ Pebble.registerConfigHandler(async function (message, respond) {
       try {
         var apod = await loadApod(settings, log, { date: date, force: true });
         res.entry = apod.entry;
+        res.served = { titleShort: settings.titleShort === 'abbrev' ? fitShort(apod.entry.title, 7) : apod.entry.title, titleLong: apod.entry.title };
         res.skipped = apod.skipped;
         res.stale = apod.stale;
         if (!apod.entry.image_url) {
