@@ -54,7 +54,7 @@
 <body>
 <main>
   <h1>NASA Astronomy Picture of the Day</h1>
-  <p class="sub">Plugin source <code>watch/apod</code> &middot; <span id="ver">starting&hellip;</span></p>
+  <p class="sub">Plugin source <code>space/apod</code> &middot; <span id="ver">starting&hellip;</span></p>
 
   <div id="banner" class="banner" hidden></div>
 
@@ -112,7 +112,7 @@
       <select id="titleShort"><option value="full">Full title in every text slot</option><option value="abbrev">Abbreviated in short slots (~7 chars)</option></select></div>
     <label class="check"><input type="checkbox" id="dither"><span>Dithering<small>Smoother gradients with few colours.</small></span></label>
     <label class="check"><input type="checkbox" id="smallDownload"><span>Ask NASA for a smaller file first<small>Requests a thumbnail sized for the watch from NASA's image resizer: tiny download, no huge decode. Falls back to the full file.</small></span></label>
-    <label class="check"><input type="checkbox" id="skipVideos"><span>Skip videos<small>If today's APOD is a video, use the most recent still picture.</small></span></label>
+    <label class="check"><input type="checkbox" id="skipVideos"><span>Skip videos<small>When APOD is a video, use the latest still picture instead of the video's thumbnail.</small></span></label>
     <div class="actions"><button id="save" class="primary" disabled>Save settings</button></div>
   </div>
 </main>
@@ -212,7 +212,7 @@
         drawBitmap(r.image);
         var i = r.info || {};
         $('canvasCap').textContent = 'What a watchface receives · ' + r.image.width + '×' + r.image.height + ', 16-colour palette';
-        setStatus('Works: ' + r.entry.date + ' · ' + (i.format || '').toUpperCase() + ' ' + (i.sourceWidth || '?') + '×' + (i.sourceHeight || '?') + ', ' + Math.round((i.bytes || 0) / 1024) + ' KB downloaded.');
+        setStatus('Works: ' + r.entry.date + ' · ' + (i.format || '').toUpperCase() + ' ' + (i.sourceWidth || '?') + '×' + (i.sourceHeight || '?') + ', ' + Math.round((i.bytes || 0) / 1024) + ' KB downloaded.' + (r.imageNote ? ' ' + r.imageNote : ''));
       } else {
         clearCanvas(sz.w, sz.h);
         setStatus('Metadata OK, but no image: ' + (r.imageError || 'unknown reason') + ' (see Diagnostics)', true);

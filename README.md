@@ -77,7 +77,17 @@ The script in `src/plugin/index.js` is already built. You only need `npm run bui
 | `media_type` | shortText |
 | `image` | image – only when the subscriber sets `iconPixelSize` |
 
-If today's APOD is a video, the latest still picture is served (setting: *Skip videos*).
+## Updates and videos
+- NASA publishes a new APOD around midnight US Eastern. The plugin re-checks NASA at most once an hour
+  (`validUntilMs` and `suggestedRefreshIntervalSec` are both 1 h), so a new picture reaches the watch
+  within about an hour of the watchface's next refresh. Rendered pictures are cached per date *and*
+  picture URL, so a replaced image is re-downloaded. If NASA is unreachable, the cached entry is
+  served and retried after 10 minutes.
+- If today's APOD is a **video**, the image is its thumbnail: a NASA-supplied thumbnail field if the API
+  has one, else a NASA-hosted still, else the YouTube still (`img.youtube.com`, listed in the manifest's
+  Internet domains; grant it if you want YouTube thumbnails). If no thumbnail can be loaded, the newest
+  still picture is used, so the image is never empty. `media_type` tells a watchface it is a video.
+  Setting *Skip videos* always uses the latest still instead.
 
 The host only *warns* about a `shortText` over ~7 characters and keeps it. A watchface that wants
 the title for a wide slot should read `title.longText.text`, which is always the full title.

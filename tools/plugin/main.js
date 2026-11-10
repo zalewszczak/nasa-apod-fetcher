@@ -39,7 +39,7 @@ var DEFAULTS = {
   dither: true,
   dim: 0,               // 0..70 percent darkening, so watchface text stays readable
   smallDownload: true,  // ask NASA's image CDN for a ~1024px wide file first
-  skipVideos: true,     // when today's APOD is a video, use the latest still image
+  skipVideos: false,    // false = a video day shows the video's thumbnail; true = use the latest still instead
   titleShort: 'full'    // 'full' = whole title also in title.shortText, 'abbrev' = ~7 chars
 };
 
@@ -172,6 +172,13 @@ function dateCode(iso) {
   return m ? m[1].slice(2) + m[2] + m[3] : null;
 }
 
+/** YouTube stills for a video URL: full-size if it exists, else the 16:9 320x180 one (no black bars). */
+function youtubeThumbs(url) {
+  var m = /(?:youtube(?:-nocookie)?\.com\/(?:embed\/|watch\?(?:[^#]*&)?v=)|youtu\.be\/)([\w-]{11})/i.exec(String(url || ''));
+  if (!m) return [];
+  return ['https://img.youtube.com/vi/' + m[1] + '/maxresdefault.jpg', 'https://img.youtube.com/vi/' + m[1] + '/mqdefault.jpg'];
+}
+
 function normalizeEntry(raw) {
   if (!raw || typeof raw !== 'object') return null;
   var date = String(raw.date || '').slice(0, 10);
@@ -182,6 +189,22 @@ function normalizeEntry(raw) {
   var image = cleanImageUrl(raw.hdurl);
   if (!image && looksLikeImageUrl(raw.url)) image = cleanImageUrl(raw.url);
   var credit = oneLine(stripHtml(raw.credit || raw.copyright || ''));
+  // Video days: find something representative to show. NASA-provided thumbnail fields first,
+  // then the NASA-hosted hdurl, then a YouTube still derived from the video id.
+  var alts = [];
+  if (!still) {
+    var keys = Object.keys(raw);
+    for (var k = 0; k < keys.length; k++) {
+      if (/thumb|poster|preview/i.test(keys[k]) && typeof raw[keys[k]] === 'string') {
+        var t = cleanImageUrl(raw[keys[k]]);
+        if (t) alts.push(t);
+      }
+    }
+    if (image) alts.push(image);
+    var yt = youtubeThumbs(raw.url).concat(youtubeThumbs(raw.hdurl));
+    for (var y = 0; y < yt.length; y++) alts.push(yt[y]);
+    alts = alts.filter(function (u, i) { return alts.indexOf(u) === i; });
+  }
   return {
     date: date,
     title: title,
@@ -189,8 +212,10 @@ function normalizeEntry(raw) {
     credit: credit,
     media_type: type,
     page_url: String(raw.permalink || raw.url || ''),
-    image_url: still ? image : '',
-    thumb_url: image,
+    is_video: !still,
+    image_url: still ? image : (alts[0] || ''),
+    alt_images: still ? [] : alts.slice(1),
+    thumb_url: still ? image : (alts[0] || ''),
     alt: oneLine(stripHtml(raw.alt || ''))
   };
 }
@@ -219,9 +244,11 @@ async function fetchEntries(date, log) {
 }
 
 function pickEntry(entries, settings, specificDate) {
-  if (specificDate || !settings.skipVideos) return { entry: entries[0], skipped: 0 };
+  if (specificDate) return { entry: entries[0], skipped: 0 };
+  // Never leave the watch without a picture: skip entries with nothing to show, and (if the
+  // user asked) videos too.
   for (var i = 0; i < entries.length; i++) {
-    if (entries[i].image_url) return { entry: entries[i], skipped: i };
+    if (entries[i].image_url && !(settings.skipVideos && entries[i].is_video)) return { entry: entries[i], skipped: i };
   }
   return { entry: entries[0], skipped: 0 };
 }
@@ -312,7 +339,7 @@ async function downloadImage(url, log) {
   if (bytes.length > MAX_DOWNLOAD_BYTES) throw new Error('file too large');
   if (fmt !== 'jpeg' && fmt !== 'png') {
     var hint = '';
-    if (bytes.length > 2 && bytes[0] === 0xFD && bytes[1] === 0xFD) {
+    if (bytes.length > 2 && bytes[0] === 0xFD) {
       hint = ' (bytes look text-decoded: this phone app ignored responseType:"arraybuffer")';
     } else if (fmt === 'webp') {
       hint = ' (WebP is not supported)';
@@ -588,8 +615,13 @@ function convert(img, w, h, settings, log) {
 
 // ---------------------------------------------------------------- bitmap cache + pipeline
 
+function urlHash(u) {
+  var h = 5381; u = String(u || '');
+  for (var i = 0; i < u.length; i++) h = ((h * 33) ^ u.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
 function bitmapKey(entry, w, h, s) {
-  return IMG_PREFIX + [entry.date, w, h, s.fit, s.color, s.dither ? 1 : 0, s.dim, s.smallDownload ? 1 : 0].join('|');
+  return IMG_PREFIX + [entry.date, urlHash(entry.image_url), w, h, s.fit, s.color, s.dither ? 1 : 0, s.dim, s.smallDownload ? 1 : 0].join('|');
 }
 
 function cacheBitmap(key, value) {
@@ -636,7 +668,8 @@ function candidateUrls(entry, tw, th, settings) {
   var base = url.split('?')[0];
   var dynamic = base.indexOf('/dynamicimage/') >= 0;
   var original = base.indexOf('/content/dam/') >= 0;
-  if (settings.smallDownload) {
+  var nasaHost = /^https:\/\/([^\/]+\.)?nasa\.gov(\/|$)/i.test(url);
+  if (settings.smallDownload && nasaHost) {
     if (dynamic || original) {
       var resizer = dynamic ? base : base.replace('/content/dam/', '/dynamicimage/assets/');
       var query;
@@ -665,6 +698,9 @@ async function getBitmap(entry, w, h, settings, log, opts) {
     if (hit && hit.bitmap) { log('bitmap from cache'); return { bitmap: hit.bitmap, info: hit.info, cached: true }; }
   }
   var urls = candidateUrls(entry, w, h, settings);
+  (entry.alt_images || []).forEach(function (alt) {
+    candidateUrls({ image_url: alt }, w, h, settings).forEach(function (u) { if (urls.indexOf(u) < 0) urls.push(u); });
+  });
   var lastError = null;
   for (var i = 0; i < urls.length; i++) {
     try {
@@ -677,10 +713,29 @@ async function getBitmap(entry, w, h, settings, log, opts) {
     } catch (e) {
       lastError = e;
       log('failed: ' + errText(e));
-      if (e && e.name === 'NotAllowedError') break;
+      if (e && e.name === 'NotAllowedError' && !entry.is_video) break;
     }
   }
   throw lastError || new Error('image download failed');
+}
+
+/** A video day whose thumbnail can't be had: use the newest still picture so the watch is never blank. */
+async function bitmapWithFallback(apod, w, h, settings, log, opts) {
+  try {
+    var r = await getBitmap(apod.entry, w, h, settings, log, opts);
+    return { bitmap: r.bitmap, info: r.info, entry: apod.entry, fallback: false };
+  } catch (e) {
+    if (!apod.entry.is_video) throw e;
+    log('video thumbnail failed (' + errText(e) + '); looking for the latest still picture');
+    var entries = await fetchEntries(null, log);
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i].image_url && !entries[i].is_video) {
+        var r2 = await getBitmap(entries[i], w, h, settings, log, opts);
+        return { bitmap: r2.bitmap, info: r2.info, entry: entries[i], fallback: true };
+      }
+    }
+    throw e;
+  }
 }
 
 // ---------------------------------------------------------------- source properties
@@ -734,7 +789,7 @@ Pebble.registerSourceHandler(async function (request, respond) {
   if (wants('image') && size && apod.entry.image_url) {
     try {
       var w = clampInt(size.w, 1, 260, 144), h = clampInt(size.h, 1, 260, 168);
-      var result = await getBitmap(apod.entry, w, h, settings, log, {});
+      var result = await bitmapWithFallback(apod, w, h, settings, log, {});
       props.image = { image: result.bitmap };
       storeRemove(ERROR_KEY);
     } catch (e) {
@@ -800,9 +855,11 @@ Pebble.registerConfigHandler(async function (message, respond) {
           res.imageError = 'This entry is a ' + apod.entry.media_type + ', not a still image.';
         } else {
           try {
-            var r = await getBitmap(apod.entry, w, h, settings, log, { force: true });
+            var r = await bitmapWithFallback(apod, w, h, settings, log, { force: true });
             res.image = r.bitmap;
             res.info = r.info;
+            res.imageNote = r.fallback ? 'Video thumbnail unavailable; showing the latest still picture (' + r.entry.date + ').'
+              : (apod.entry.is_video ? 'Today is a video; the picture is its thumbnail.' : '');
             storeRemove(ERROR_KEY);
           } catch (e) {
             res.imageError = errText(e);

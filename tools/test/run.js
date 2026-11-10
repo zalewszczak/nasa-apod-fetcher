@@ -33,6 +33,10 @@ function makeHost(opts) {
         if (code) { const e = opts.list.find(x => x.date.slice(2).replace(/-/g, '') === code[1]); return e ? respond(200, JSON.stringify(e), 'application/json') : respond(404, '', 'text/html'); }
         return respond(200, JSON.stringify(opts.list), 'application/json');
       }
+      if (url.startsWith('https://img.youtube.com/')) {
+        if (!opts.yt || url.includes('maxresdefault')) return respond(404, '', 'text/html');
+        return respond(200, fs.readFileSync(path.join(fx, 'small.jpg')), 'image/jpeg');
+      }
       if (url.includes('/dynamicimage/')) {
         const w = +(/[?&]w=(\d+)/.exec(url) || [0, 99999])[1];
         const file = opts.dynTiny ? 'tiny.jpg' : (w <= 1100 ? 'small.jpg' : 'big.jpg');
@@ -63,6 +67,7 @@ function validBitmap(b, w, h) {
 
   // 1. Source handler, resizer honoured, video skipped.
   let h = makeHost(base);
+  await h.config({ type: 'save', settings: { skipVideos: true } });
   let r = await h.source({ category: 'space', item: 'apod', iconPixelSize: { w: 200, h: 228 } });
   ok(!!r.data, 'source returns data');
   const props = r.data.instances[0].properties;
@@ -159,6 +164,37 @@ function validBitmap(b, w, h) {
   await h.config({ type: 'save', settings: { titleShort: 'abbrev' } });
   t = (await h.source({ category: 'space', item: 'apod', properties: ['title'] })).data.instances[0].properties.title;
   ok(t.shortText.text.length <= 7 && t.longText.text.startsWith('Test & Nebula'), 'abbreviated short text on request, long text still full');
+
+  // 12. Video days: thumbnail instead of nothing.
+  const ytVideo = Object.assign(entry('2026-11-09', 'video', ''), { url: 'https://www.youtube.com/embed/abcDEF12345?rel=0', hdurl: '' });
+  const still = entry('2026-11-08', 'image', 'https://assets.science.nasa.gov/img/sq.png');
+  // 12a. NASA-provided thumbnail field wins.
+  const withThumb = Object.assign(entry('2026-11-09', 'video', ''), { url: 'https://www.youtube.com/embed/abcDEF12345', hdurl: '', thumbnail_url: 'https://assets.science.nasa.gov/img/sq.png' });
+  h = makeHost(Object.assign({}, base, { list: [withThumb, still] }));
+  let vr = (await h.source({ category: 'space', item: 'apod', iconPixelSize: { w: 200, h: 228 } })).data.instances[0].properties;
+  ok(vr.image && validBitmap(vr.image.image, 200, 228) && vr.date.timestamp.value === Date.UTC(2026, 10, 9) / 1000, 'video day shows its own thumbnail (NASA thumbnail field)');
+  ok(!h.calls.some(u => u.includes('youtube')), 'YouTube not contacted when NASA supplies a thumbnail');
+  // 12b. Only a YouTube id: derived still, maxres 404 -> mqdefault.
+  h = makeHost(Object.assign({}, base, { list: [ytVideo, still], yt: true }));
+  vr = (await h.source({ category: 'space', item: 'apod', iconPixelSize: { w: 200, h: 228 } })).data.instances[0].properties;
+  ok(vr.image && validBitmap(vr.image.image, 200, 228) && vr.date.timestamp.value === Date.UTC(2026, 10, 9) / 1000, 'video day uses YouTube still');
+  ok(h.calls.some(u => u.endsWith('/abcDEF12345/maxresdefault.jpg')) && h.calls.some(u => u.endsWith('/abcDEF12345/mqdefault.jpg')), 'tried maxres then mq');
+  // 12c. No thumbnail obtainable: fall back to the latest still, never empty.
+  h = makeHost(Object.assign({}, base, { list: [ytVideo, still], yt: false }));
+  vr = (await h.source({ category: 'space', item: 'apod', iconPixelSize: { w: 200, h: 228 } })).data.instances[0].properties;
+  ok(vr.image && validBitmap(vr.image.image, 200, 228), 'falls back to a still picture when the thumbnail fails');
+  // 12d. Video with no thumbnail source at all: pickEntry skips to the still.
+  const bare = Object.assign(entry('2026-11-09', 'video', ''), { url: 'https://vimeo.com/123', hdurl: '' });
+  h = makeHost(Object.assign({}, base, { list: [bare, still] }));
+  vr = (await h.source({ category: 'space', item: 'apod', iconPixelSize: { w: 200, h: 228 } })).data.instances[0].properties;
+  ok(vr.image && vr.date.timestamp.value === Date.UTC(2026, 10, 8) / 1000, 'no thumbnail at all -> latest still');
+  // 12e. Repeat request for the same picture is served from the bitmap cache.
+  const a = entry('2026-11-09', 'image', 'https://assets.science.nasa.gov/img/sq.png');
+  h = makeHost(Object.assign({}, base, { list: [a] }));
+  await h.source({ category: 'space', item: 'apod', iconPixelSize: { w: 100, h: 100 } });
+  const nImg = h.calls.filter(u => u.includes('/img/')).length;
+  await h.source({ category: 'space', item: 'apod', iconPixelSize: { w: 100, h: 100 } });
+  ok(h.calls.filter(u => u.includes('/img/')).length === nImg, 'same picture: served from cache');
 
   console.log(failures ? `\n${failures} FAILED` : '\nall passed');
   process.exit(failures ? 1 : 0);
